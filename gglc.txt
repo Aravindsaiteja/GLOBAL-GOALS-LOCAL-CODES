@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Eco-Tracker Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <h1>Eco-Tracker: Electricity & Carbon Dashboard</h1>
+        
+        <section class="log-section">
+            <h2>Log Electricity Usage (kWh)</h2>
+            <form id="usage-form">
+                <label for="kwh-input">Today's Usage (kWh):</label>
+                <input type="number" id="kwh-input" step="0.01" min="0" required>
+                <button type="submit">Calculate & Log</button>
+            </form>
+        </section>
+
+        <section class="emissions-section">
+            <h2>🌍 Your Estimated Carbon Emissions</h2>
+            <p>Based on your last log:</p>
+            <p class="result" id="carbon-result">Enter usage above to calculate.</p>
+        </section>
+
+        <section class="suggestions-section">
+            <h2>💡 Personalized Conservation Suggestions</h2>
+            <ul id="suggestions-list">
+                <li>Use energy-efficient LED lighting.</li>
+                <li>Unplug electronics when not in use (phantom load).</li>
+            </ul>
+        </section>
+        
+        <section class="history-section">
+            <h2>📈 Usage History (Conceptual)</h2>
+            <p>In a full application, a library like **Chart.js** would display a graph here.</p>
+        </section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

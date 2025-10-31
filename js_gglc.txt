@@ -1,0 +1,60 @@
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('usage-form');
+    const kwhInput = document.getElementById('kwh-input');
+    const carbonResult = document.getElementById('carbon-result');
+    const suggestionsList = document.getElementById('suggestions-list');
+
+    // **ASSUMPTION:** Use a sample national average emission factor (kg CO2e per kWh)
+    // This factor should be based on the user's location for accuracy.
+    const EMISSION_FACTOR = 0.45; // e.g., 0.45 kg CO2e per kWh
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        
+        const usageKWh = parseFloat(kwhInput.value);
+
+        if (isNaN(usageKWh) || usageKWh < 0) {
+            alert("Please enter a valid electricity usage in kWh.");
+            return;
+        }
+
+        // 1. Calculate Carbon Emissions
+        const carbonEmissions = usageKWh * EMISSION_FACTOR;
+        
+        // Display the result
+        carbonResult.textContent = `${carbonEmissions.toFixed(2)} kg CO2e`;
+        
+        // 2. Log Usage (Conceptual - would use local storage or a database in a real app)
+        console.log(`Logged: ${usageKWh} kWh, Emissions: ${carbonEmissions.toFixed(2)} kg CO2e`);
+
+        // 3. Get Personalized Conservation Suggestions
+        updateSuggestions(usageKWh);
+
+        // Optionally clear the input
+        // kwhInput.value = '';
+    });
+
+    function updateSuggestions(kwh) {
+        let suggestions = [];
+
+        // Basic personalized logic based on usage
+        if (kwh > 20) {
+            suggestions.push("⚠️ **High Usage Alert!** Consider a home energy audit to find energy vampires.");
+        } else if (kwh > 10) {
+            suggestions.push("🔌 Check your refrigerator and HVAC systems for optimal energy settings.");
+        } else {
+            suggestions.push("✅ **Great job!** You're maintaining low usage. Keep checking appliances.");
+        }
+
+        // General suggestions (always included)
+        suggestions.push("⏰ Use timers for water heaters and pool pumps.");
+        suggestions.push("🌡️ Adjust your thermostat a few degrees when you leave the house.");
+        suggestions.push("🧺 Wash clothes in cold water to save heating energy.");
+        
+        // Update the list in the HTML
+        suggestionsList.innerHTML = suggestions.map(tip => `<li>${tip}</li>`).join('');
+    }
+    
+    // Initial load suggestions
+    updateSuggestions(0); 
+});

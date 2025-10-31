@@ -1,0 +1,82 @@
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f4f7f6;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+}
+
+.dashboard-container {
+    background-color: #fff;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    max-width: 800px;
+    width: 100%;
+}
+
+h1 {
+    color: #007bff;
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+h2 {
+    border-bottom: 2px solid #eee;
+    padding-bottom: 10px;
+    margin-top: 30px;
+    color: #28a745; /* Green for section titles */
+}
+
+/* Form Styles */
+.log-section label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+.log-section input[type="number"] {
+    width: calc(100% - 100px);
+    padding: 10px;
+    margin-right: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.log-section button {
+    padding: 10px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.log-section button:hover {
+    background-color: #0056b3;
+}
+
+/* Result Styles */
+.result {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #dc3545; /* Red for high impact/result */
+    margin-top: 15px;
+}
+
+/* Suggestions Styles */
+.suggestions-section ul {
+    list-style-type: none;
+    padding-left: 0;
+}
+
+.suggestions-section li {
+    background-color: #e9f7ee;
+    border-left: 4px solid #28a745;
+    margin-bottom: 8px;
+    padding: 10px;
+    border-radius: 4px;
+}
