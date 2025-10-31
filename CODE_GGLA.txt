@@ -1,0 +1,422 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { Line } from 'react-chartjs-2';
+import { 
+    Chart as ChartJS, 
+    CategoryScale, 
+    LinearScale, 
+    PointElement, 
+    LineElement, 
+    Title, 
+    Tooltip, 
+    Legend 
+} from 'chart.js';
+
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, query, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+
+// NEW: Import the Leaderboard component (now resolved by the file below)
+import Leaderboard from './Leaderboard'; 
+
+// Register Chart.js components (MANDATORY for react-chartjs-2)
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    Title,
+    Tooltip,
+    Legend
+);
+
+// --- GLOBAL VARIABLES (Mandatory for Canvas Environment) ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
+
+// --- MOCK EMISSION FACTORS (kg CO2e per unit) ---
+const EMISSION_FACTORS = {
+    ELECTRICITY_KWH: 0.45,
+    TRANSPORT_MILE: 0.40,
+    WASTE_KG: 0.25,
+    WATER_CUBIC_METER: 0.5,
+};
+
+const initialLog = {
+    electricityKwh: 0,
+    transportMiles: 0,
+    wasteKg: 0,
+    waterM3: 0,
+};
+
+const App = () => {
+    const [logInput, setLogInput] = useState(initialLog);
+    const [emissionsBreakdown, setEmissionsBreakdown] = useState(null);
+    const [isCalculating, setIsCalculating] = useState(false);
+    const [logHistory, setLogHistory] = useState([]);
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+
+    // 1. FIREBASE INITIALIZATION AND AUTHENTICATION
+    useEffect(() => {
+        if (Object.keys(firebaseConfig).length === 0) {
+            console.error("Firebase configuration is missing. Cannot connect.");
+            setUserId(crypto.randomUUID());
+            setIsAuthReady(true);
+            return;
+        }
+        
+        const app = initializeApp(firebaseConfig);
+        const firestore = getFirestore(app);
+        const authService = getAuth(app);
+        
+        setDb(firestore);
+        setAuth(authService);
+
+        const unsubscribe = onAuthStateChanged(authService, async (user) => {
+            if (!user) {
+                if (initialAuthToken) {
+                    try {
+                        await signInWithCustomToken(authService, initialAuthToken);
+                    } catch (error) {
+                        console.error("Custom token sign-in failed. Falling back to anonymous.", error);
+                        await signInAnonymously(authService);
+                    }
+                } else {
+                    await signInAnonymously(authService);
+                }
+            }
+            setUserId(authService.currentUser?.uid || crypto.randomUUID());
+            setIsAuthReady(true);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    // 2. FIREBASE REAL-TIME DATA FETCHING (onSnapshot) - PRIVATE LOGS
+    useEffect(() => {
+        if (!db || !isAuthReady || !userId) return;
+
+        const logsRef = collection(db, `artifacts/${appId}/users/${userId}/energyLogs`);
+        const q = query(logsRef); 
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const history = [];
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                const date = data.timestamp?.toDate ? data.timestamp.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Unknown';
+                history.push({
+                    id: doc.id,
+                    date: date,
+                    ...data,
+                });
+            });
+            history.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+            setLogHistory(history.slice(-10));
+        }, (error) => {
+            console.error("Error fetching private logs:", error);
+        });
+
+        return () => unsubscribe();
+    }, [db, isAuthReady, userId]);
+
+    // --- Core Logic: Calculation ---
+    const calculateEmissions = (input) => {
+        const electricityEmissions = input.electricityKwh * EMISSION_FACTORS.ELECTRICITY_KWH;
+        const transportEmissions = input.transportMiles * EMISSION_FACTORS.TRANSPORT_MILE;
+        const wasteEmissions = input.wasteKg * EMISSION_FACTORS.WASTE_KG;
+        const waterEmissions = input.waterM3 * EMISSION_FACTORS.WATER_CUBIC_METER;
+
+        const totalEmissions = electricityEmissions + transportEmissions + wasteEmissions + waterEmissions;
+
+        return {
+            total: totalEmissions,
+            electricity: electricityEmissions,
+            transport: transportEmissions,
+            waste: wasteEmissions,
+            water: waterEmissions,
+        };
+    };
+
+    // --- Core Logic: Personalized Suggestions Engine (Unchanged) ---
+    const getPersonalizedSuggestions = (breakdown) => {
+        const { total, electricity, transport, waste } = breakdown;
+
+        if (logInput.electricityKwh > 20) {
+            return ["⚠️ **High Usage Alert (Electricity):** Consider checking if appliances like your AC or refrigerator are running efficiently."];
+        }
+
+        const categories = [
+            { name: 'Electricity', value: electricity, tip: 'Focus on reducing appliance usage and switching to LED lighting.' },
+            { name: 'Transportation', value: transport, tip: 'Try carpooling, biking, or using public transport for at least 3 days a week.' },
+            { name: 'Waste', value: waste, tip: 'Increase recycling and composting efforts to cut down on landfill emissions.' },
+        ];
+
+        const maxContributor = categories.reduce((max, current) => 
+            current.value > max.value ? current : max, { value: -1 }
+        );
+
+        const maxPercentage = (maxContributor.value / total) * 100;
+        let suggestions = [];
+
+        if (total > 0 && maxPercentage > 40) {
+            suggestions.push(`🎯 **TARGETED ACTION (${maxContributor.name}):** ${maxContributor.tip}`);
+        } else if (total > 0) {
+            suggestions.push("✅ Your emissions are well-balanced. Look for minor efficiencies in all areas.");
+        } else {
+            suggestions.push("Enter your daily usage logs to generate personalized tips.");
+        }
+
+        suggestions.push("💡 Use smart power strips to eliminate phantom load from electronics.");
+        suggestions.push("🧺 Wash clothes in cold water to save heating energy.");
+
+        return suggestions;
+    };
+
+    const suggestions = useMemo(() => {
+        const latestBreakdown = emissionsBreakdown || (logHistory.length > 0 ? logHistory[logHistory.length - 1] : null);
+        if (!latestBreakdown) return getPersonalizedSuggestions({ total: 0 }); 
+        return getPersonalizedSuggestions(latestBreakdown);
+    }, [emissionsBreakdown, logHistory]);
+
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        const numericValue = Math.max(0, parseFloat(value) || 0);
+        setLogInput(prev => ({ ...prev, [name]: numericValue }));
+    };
+
+    // 3. LOGGING FUNCTION (Now saves to PRIVATE and PUBLIC collections)
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!db || !userId) {
+            console.error("Database connection not ready. Cannot save data.");
+            return;
+        }
+
+        setIsCalculating(true);
+        const results = calculateEmissions(logInput);
+        
+        const logData = {
+            ...logInput,
+            ...results,
+            timestamp: serverTimestamp(),
+            dateLabel: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), 
+        };
+
+        try {
+            // A. SAVE to Private User Log
+            const privateLogsRef = collection(db, `artifacts/${appId}/users/${userId}/energyLogs`);
+            await addDoc(privateLogsRef, logData);
+            
+            // B. SAVE to Public Leaderboard (Mirrored Data)
+            const publicLogsRef = collection(db, `artifacts/${appId}/public/data/leaderboard_entries`);
+            await addDoc(publicLogsRef, {
+                userId: userId,
+                totalEmissions: results.total,
+                kwhLogged: logInput.electricityKwh,
+                timestamp: serverTimestamp(),
+            });
+
+            setEmissionsBreakdown(results);
+            setLogInput(initialLog); 
+            console.log("Log successfully written to private and public collections.");
+        } catch (error) {
+            console.error("Error writing document to Firestore: ", error);
+        } finally {
+            setIsCalculating(false);
+        }
+    };
+
+    // --- CHART DATA GENERATOR (Unchanged) ---
+    const chartData = useMemo(() => {
+        const dates = logHistory.map(log => log.dateLabel || log.date);
+        const kwhData = logHistory.map(log => log.electricityKwh);
+        const emissionData = logHistory.map(log => log.totalEmissions);
+
+        return {
+            labels: dates,
+            datasets: [
+                {
+                    label: 'Electricity Usage (kWh)',
+                    data: kwhData,
+                    borderColor: 'rgb(255, 179, 0)',
+                    backgroundColor: 'rgba(255, 179, 0, 0.5)',
+                    tension: 0.4,
+                    yAxisID: 'yKwh',
+                },
+                {
+                    label: 'Total Emissions (kg CO2e)',
+                    data: emissionData,
+                    borderColor: 'rgb(40, 167, 69)',
+                    backgroundColor: 'rgba(40, 167, 69, 0.5)',
+                    tension: 0.4,
+                    yAxisID: 'yEmissions',
+                },
+            ],
+        };
+    }, [logHistory]);
+
+    // --- Chart Options (Unchanged) ---
+    const chartOptions = {
+        responsive: true,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: `Last ${logHistory.length} Logs Trend` },
+        },
+        scales: {
+            yKwh: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Usage (kWh)' } },
+            yEmissions: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Emissions (kg CO₂e)' } },
+        }
+    };
+
+    // --- UI Components ---
+    const InputField = ({ label, name, unit }) => (
+        <div className="flex flex-col mb-4">
+            <label htmlFor={name} className="text-sm font-semibold text-gray-700 mb-1">{label} ({unit})</label>
+            <input
+                type="number"
+                id={name}
+                name={name}
+                value={logInput[name]}
+                onChange={handleChange}
+                min="0"
+                step="0.01"
+                className="p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 transition duration-150 shadow-sm"
+                required
+            />
+        </div>
+    );
+
+    const BreakdownCard = ({ title, value, unit, color }) => (
+        <div className={`p-4 rounded-xl shadow-lg border-l-4 ${color}`}>
+            <p className="text-sm font-medium text-gray-500">{title}</p>
+            <p className="text-2xl font-bold mt-1 text-gray-800">
+                {value !== undefined ? value.toFixed(2) : '0.00'}
+                <span className="text-base font-normal ml-1 text-gray-600">{unit}</span>
+            </p>
+        </div>
+    );
+
+    return (
+        <div className="min-h-screen bg-gray-50 p-4 sm:p-8 flex justify-center">
+            <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl p-6 lg:p-10">
+                <header className="text-center mb-8">
+                    <h1 className="text-4xl font-extrabold text-green-700">
+                        Eco-Tracker Dashboard 🌎
+                    </h1>
+                    <p className="text-lg text-gray-500 mt-2">Log, Calculate, and Conserve. (User ID: {userId || 'Connecting...'})</p>
+                </header>
+
+                <div className="grid lg:grid-cols-3 gap-8">
+                    
+                    {/* --- Column 1: Data Logging Form --- */}
+                    <div className="lg:col-span-1 bg-green-50 p-6 rounded-xl shadow-inner h-fit order-2 lg:order-1">
+                        <h2 className="text-2xl font-bold text-green-800 mb-6 border-b pb-3 border-green-200">
+                            Log Daily Footprint
+                        </h2>
+                        <form onSubmit={handleSubmit}>
+                            <InputField label="Electricity Usage" name="electricityKwh" unit="kWh" />
+                            <InputField label="Vehicle Travel" name="transportMiles" unit="miles" />
+                            <InputField label="Un-recycled Waste" name="wasteKg" unit="kg" />
+                            <InputField label="Water Consumption" name="waterM3" unit="m³" />
+                            
+                            <button
+                                type="submit"
+                                disabled={isCalculating || !isAuthReady || !db}
+                                className="w-full mt-4 py-3 px-6 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-200 disabled:opacity-50"
+                            >
+                                {isCalculating ? 'Saving to Firestore...' : 'Calculate & Log Data'}
+                            </button>
+                            {!isAuthReady || !db && (
+                                <p className="text-sm text-center text-red-500 mt-2">Connecting to database...</p>
+                            )}
+                        </form>
+                    </div>
+
+                    {/* --- Column 2 & 3: Results and Visualization --- */}
+                    <div className="lg:col-span-2 order-1 lg:order-2">
+                        
+                        {/* Emissions Visualization Chart */}
+                        <section className="mb-8">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                                📈 Usage and Emissions Trend
+                            </h2>
+                            <div className="bg-white p-4 rounded-xl shadow-lg border border-gray-100 h-96">
+                                {logHistory.length > 0 ? (
+                                    <Line options={chartOptions} data={chartData} />
+                                ) : (
+                                    <p className="text-center text-gray-500 py-20">
+                                        Log more data to see your historical trend chart!
+                                    </p>
+                                )}
+                            </div>
+                        </section>
+
+                        {/* Latest Emissions Breakdown */}
+                        <section className="mb-8">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                                Latest Carbon Footprint Breakdown
+                            </h2>
+                            <div className="p-6 bg-white border border-gray-200 rounded-xl shadow-md">
+                                {logHistory.length > 0 || emissionsBreakdown ? (
+                                    <>
+                                        <div className="flex items-end mb-4">
+                                            <span className="text-6xl font-extrabold text-red-600">
+                                                {(emissionsBreakdown?.total || logHistory[logHistory.length - 1]?.totalEmissions || 0).toFixed(2)}
+                                            </span>
+                                            <span className="text-2xl font-semibold ml-2 text-gray-700">
+                                                kg $\text{CO}_2\text{e}$
+                                            </span>
+                                        </div>
+
+                                        <h3 className="text-lg font-semibold mt-4 mb-2">Footprint by Category</h3>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <BreakdownCard title="Electricity" value={emissionsBreakdown?.electricity || logHistory[logHistory.length - 1]?.electricity} unit="kg" color="border-l-yellow-500 bg-yellow-50" />
+                                            <BreakdownCard title="Transport" value={emissionsBreakdown?.transport || logHistory[logHistory.length - 1]?.transport} unit="kg" color="border-l-blue-500 bg-blue-50" />
+                                            <BreakdownCard title="Waste" value={emissionsBreakdown?.waste || logHistory[logHistory.length - 1]?.waste} unit="kg" color="border-l-red-500 bg-red-50" />
+                                            <BreakdownCard title="Water" value={emissionsBreakdown?.water || logHistory[logHistory.length - 1]?.water} unit="kg" color="border-l-cyan-500 bg-cyan-50" />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p className="text-center text-gray-500 py-8">
+                                        Log data to see your current emissions report.
+                                    </p>
+                                )}
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                {/* Personalized Suggestions (Full Width) */}
+                <section className="mt-8">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                        💡 Personalized Conservation Suggestions
+                    </h2>
+                    <div className="bg-green-100 p-6 rounded-xl shadow-md border border-green-300">
+                        <ul className="space-y-3">
+                            {suggestions.map((tip, index) => (
+                                <li 
+                                    key={index} 
+                                    className="p-3 bg-white rounded-lg shadow-sm flex items-start text-gray-700 hover:shadow-md transition"
+                                >
+                                    <span className="font-mono mr-3 text-green-600 text-lg">›</span>
+                                    <span dangerouslySetInnerHTML={{ __html: tip.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </section>
+                
+                {/* --- Leaderboard Integration --- */}
+                <section className="mt-10 pt-6 border-t border-gray-200">
+                    <Leaderboard db={db} appId={appId} currentUserId={userId} isReady={isAuthReady} />
+                </section>
+            </div>
+        </div>
+    );
+};
+
+export default App;
