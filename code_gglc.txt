@@ -1,0 +1,299 @@
+import React, { useState, useMemo } from 'react';
+
+// --- MOCK EMISSION FACTORS (kg CO2e per unit) ---
+// In a real app, these would come from an API based on location.
+const EMISSION_FACTORS = {
+    // Electricity (Average US grid mix, simplified)
+    ELECTRICITY_KWH: 0.45, // kg CO2e per kWh
+
+    // Transportation (Assuming average gasoline car)
+    TRANSPORT_MILE: 0.40, // kg CO2e per mile
+
+    // Waste (Assuming mixed waste to landfill)
+    WASTE_KG: 0.25, // kg CO2e per kg of un-recycled waste
+
+    // Water (Treatment and pumping, simplified)
+    WATER_CUBIC_METER: 0.5, // kg CO2e per m³
+};
+
+// --- Initial State for Input Logging ---
+const initialLog = {
+    electricityKwh: 0,
+    transportMiles: 0,
+    wasteKg: 0,
+    waterM3: 0,
+};
+
+const App = () => {
+    const [logInput, setLogInput] = useState(initialLog);
+    const [lastLogTime, setLastLogTime] = useState(null);
+    const [emissionsBreakdown, setEmissionsBreakdown] = useState(null);
+    const [isCalculating, setIsCalculating] = useState(false);
+
+    // --- Core Logic: Calculate Emissions and Breakdown ---
+    const calculateEmissions = (input) => {
+        const electricityEmissions = input.electricityKwh * EMISSION_FACTORS.ELECTRICITY_KWH;
+        const transportEmissions = input.transportMiles * EMISSION_FACTORS.TRANSPORT_MILE;
+        const wasteEmissions = input.wasteKg * EMISSION_FACTORS.WASTE_KG;
+        const waterEmissions = input.waterM3 * EMISSION_FACTORS.WATER_CUBIC_METER;
+
+        const totalEmissions = electricityEmissions + transportEmissions + wasteEmissions + waterEmissions;
+
+        return {
+            total: totalEmissions,
+            electricity: electricityEmissions,
+            transport: transportEmissions,
+            waste: wasteEmissions,
+            water: waterEmissions,
+        };
+    };
+
+    // --- Core Logic: Personalized Suggestions Engine (Phase 2, Point 2) ---
+    const getPersonalizedSuggestions = (breakdown) => {
+        const { total, electricity, transport, waste } = breakdown;
+
+        // 1. Threshold-Based Alert (Absolute Usage Check)
+        if (logInput.electricityKwh > 25) {
+            return ["⚠️ **URGENT ALERT (High Usage):** Your electricity consumption is exceptionally high. Perform a full home energy audit immediately."];
+        }
+
+        // 2. Analyze Max Contributor (Percentage Check)
+        const categories = [
+            { name: 'Electricity', value: electricity, tip: 'Focus on reducing appliance usage and switching to LED lighting.' },
+            { name: 'Transportation', value: transport, tip: 'Try carpooling, biking, or using public transport for at least 3 days a week.' },
+            { name: 'Waste', value: waste, tip: 'Increase recycling and composting efforts to cut down on landfill emissions.' },
+        ];
+
+        // Find the category with the highest emission percentage
+        const maxContributor = categories.reduce((max, current) => 
+            current.value > max.value ? current : max, { value: -1 }
+        );
+
+        const maxPercentage = (maxContributor.value / total) * 100;
+        let suggestions = [];
+
+        if (total > 0 && maxPercentage > 35) {
+            // Targeted Tip for the biggest source
+            suggestions.push(`🎯 **TARGETED ACTION (${maxContributor.name}):** ${maxContributor.tip}`);
+        } else if (total > 0) {
+            suggestions.push("✅ Your emissions are diversified! Continue finding small efficiencies across all areas.");
+        } else {
+            suggestions.push("Enter your daily usage logs to generate personalized tips.");
+        }
+
+        // Add general tips
+        suggestions.push("💡 Use smart power strips to eliminate phantom load from electronics.");
+        suggestions.push("🌡️ Optimize your HVAC settings: lower heat in winter, raise AC in summer.");
+
+        return suggestions;
+    };
+
+    const suggestions = useMemo(() => {
+        if (!emissionsBreakdown) return [];
+        return getPersonalizedSuggestions(emissionsBreakdown);
+    }, [emissionsBreakdown, logInput]);
+
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        // Ensure inputs are non-negative numbers
+        const numericValue = Math.max(0, parseFloat(value) || 0);
+        setLogInput(prev => ({ ...prev, [name]: numericValue }));
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        setIsCalculating(true);
+        // Simulate API delay
+        setTimeout(() => {
+            const results = calculateEmissions(logInput);
+            setEmissionsBreakdown(results);
+            setLastLogTime(new Date().toLocaleTimeString());
+            setIsCalculating(false);
+            // In a real app, this is where you'd call the backend API: 
+            // postLogData(logInput, results.total);
+            console.log("Logged Data and Calculated Emissions:", results);
+        }, 500);
+    };
+
+    // --- UI Components ---
+    const InputField = ({ label, name, unit }) => (
+        <div className="flex flex-col mb-4">
+            <label htmlFor={name} className="text-sm font-semibold text-gray-700 mb-1">{label} ({unit})</label>
+            <input
+                type="number"
+                id={name}
+                name={name}
+                value={logInput[name]}
+                onChange={handleChange}
+                min="0"
+                step="0.01"
+                className="p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 transition duration-150 shadow-sm"
+                required
+            />
+        </div>
+    );
+
+    const BreakdownCard = ({ title, value, unit, color }) => (
+        <div className={`p-4 rounded-xl shadow-lg border-l-4 ${color}`}>
+            <p className="text-sm font-medium text-gray-500">{title}</p>
+            <p className="text-2xl font-bold mt-1 text-gray-800">
+                {value.toFixed(2)}
+                <span className="text-base font-normal ml-1 text-gray-600">{unit}</span>
+            </p>
+        </div>
+    );
+
+    return (
+        <div className="min-h-screen bg-gray-50 p-4 sm:p-8 flex justify-center">
+            <div className="w-full max-w-5xl bg-white rounded-2xl shadow-2xl p-6 lg:p-10">
+                <header className="text-center mb-8">
+                    <h1 className="text-4xl font-extrabold text-green-700">
+                        Eco-Tracker Dashboard 🌎
+                    </h1>
+                    <p className="text-lg text-gray-500 mt-2">Log, Calculate, and Conserve.</p>
+                </header>
+
+                <div className="grid lg:grid-cols-3 gap-8">
+                    
+                    {/* --- Column 1: Data Logging Form (Multi-Source) --- */}
+                    <div className="lg:col-span-1 bg-green-50 p-6 rounded-xl shadow-inner h-fit">
+                        <h2 className="text-2xl font-bold text-green-800 mb-6 border-b pb-3 border-green-200">
+                            Log Daily Footprint
+                        </h2>
+                        <form onSubmit={handleSubmit}>
+                            {/* Electricity (Scope 2) */}
+                            <InputField 
+                                label="Electricity Usage" 
+                                name="electricityKwh" 
+                                unit="kWh" 
+                            />
+                            {/* Transportation (Scope 1/3) */}
+                            <InputField 
+                                label="Vehicle Travel" 
+                                name="transportMiles" 
+                                unit="miles" 
+                            />
+                            {/* Waste (Scope 3) */}
+                            <InputField 
+                                label="Un-recycled Waste" 
+                                name="wasteKg" 
+                                unit="kg" 
+                            />
+                            {/* Water (Scope 3) */}
+                            <InputField 
+                                label="Water Consumption" 
+                                name="waterM3" 
+                                unit="m³" 
+                            />
+                            
+                            <button
+                                type="submit"
+                                disabled={isCalculating}
+                                className="w-full mt-4 py-3 px-6 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-200 disabled:opacity-50"
+                            >
+                                {isCalculating ? 'Calculating...' : 'Calculate & Log Data'}
+                            </button>
+                            {lastLogTime && (
+                                <p className="text-xs text-gray-500 mt-3 text-center">
+                                    Last Calculated: {lastLogTime}
+                                </p>
+                            )}
+                        </form>
+                    </div>
+
+                    {/* --- Column 2 & 3: Results and Suggestions --- */}
+                    <div className="lg:col-span-2">
+                        
+                        {/* Emissions Results */}
+                        <section className="mb-8">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                                Carbon Footprint Summary
+                            </h2>
+                            <div className="p-6 bg-white border border-gray-200 rounded-xl shadow-md">
+                                {emissionsBreakdown ? (
+                                    <>
+                                        <p className="text-sm text-gray-600 mb-2">Total Estimated $\text{CO}_2\text{e}$ for this log:</p>
+                                        <div className="flex items-end mb-4">
+                                            <span className="text-6xl font-extrabold text-red-600">
+                                                {emissionsBreakdown.total.toFixed(2)}
+                                            </span>
+                                            <span className="text-2xl font-semibold ml-2 text-gray-700">
+                                                kg $\text{CO}_2\text{e}$
+                                            </span>
+                                        </div>
+
+                                        <h3 className="text-lg font-semibold mt-4 mb-2">Breakdown</h3>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <BreakdownCard 
+                                                title="Electricity" 
+                                                value={emissionsBreakdown.electricity} 
+                                                unit="kg" 
+                                                color="border-l-yellow-500 bg-yellow-50"
+                                            />
+                                            <BreakdownCard 
+                                                title="Transport" 
+                                                value={emissionsBreakdown.transport} 
+                                                unit="kg" 
+                                                color="border-l-blue-500 bg-blue-50"
+                                            />
+                                            <BreakdownCard 
+                                                title="Waste" 
+                                                value={emissionsBreakdown.waste} 
+                                                unit="kg" 
+                                                color="border-l-red-500 bg-red-50"
+                                            />
+                                            <BreakdownCard 
+                                                title="Water" 
+                                                value={emissionsBreakdown.water} 
+                                                unit="kg" 
+                                                color="border-l-cyan-500 bg-cyan-50"
+                                            />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p className="text-center text-gray-500 py-8">
+                                        Submit your first log to see the emissions report.
+                                    </p>
+                                )}
+                            </div>
+                        </section>
+
+                        {/* Personalized Suggestions */}
+                        <section>
+                            <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                                💡 Personalized Conservation Suggestions
+                            </h2>
+                            <div className="bg-green-50 p-6 rounded-xl shadow-md border border-green-200">
+                                <ul className="space-y-3">
+                                    {suggestions.map((tip, index) => (
+                                        <li 
+                                            key={index} 
+                                            className="p-3 bg-white rounded-lg shadow-sm flex items-start text-gray-700"
+                                        >
+                                            <span className="font-mono mr-3 text-green-600 text-lg">›</span>
+                                            <span dangerouslySetInnerHTML={{ __html: tip.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+                
+                {/* Gamification Placeholder */}
+                <section className="mt-10 pt-6 border-t border-gray-200 text-center">
+                    <h2 className="text-xl font-bold text-gray-600">
+                        🏆 Leaderboard & Gamification (Phase 2, Point 3)
+                    </h2>
+                    <p className="text-gray-500 mt-2">
+                        In a production version, this area would display your **Reduction Score** and **Conservation Streak** using PostgreSQL data.
+                    </p>
+                </section>
+
+            </div>
+        </div>
+    );
+};
+
+export default App;
